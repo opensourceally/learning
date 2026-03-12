@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import axios from 'axios';
 import fastifyStatic from '@fastify/static';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -23,29 +24,82 @@ const getNewsSentiment = async () => {
   return { sentiment: randomSentiment, score: Math.round(Math.random() * 100) };
 };
 
-// Mock function to fetch Option Chain Data (Open Interest & Strike Prices)
-// Real world: Fetch this from NSE India API, Sensibull, or a broker API like Zerodha Kite Connect.
-const getOptionChainData = async () => {
-  // Base spot price to generate strikes around
-  const baseSpot = 22000;
-  const spotPrice = Math.floor(baseSpot + Math.random() * 500); // Between 22000 and 22500
-  
-  // Generating nearby strikes
-  const strikes = [];
-  for (let i = -3; i <= 3; i++) {
-    const strikePrice = Math.round(spotPrice / 100) * 100 + (i * 100);
-    strikes.push({
-      price: strikePrice,
-      // Random OI data: higher OI usually around round numbers
-      callOI: Math.floor(Math.random() * 5000000 + 1000000), 
-      putOI: Math.floor(Math.random() * 5000000 + 1000000)
-    });
-  }
+// Function to fetch Option Chain Data from NSE India
+let nseCookies = '';
 
-  return {
-    spotPrice,
-    strikes
-  };
+async function fetchNSECookies() {
+  try {
+    const response = await axios.get('https://www.nseindia.com', {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.1.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      }
+    });
+
+    const setCookieHeader = response.headers['set-cookie'];
+    if (setCookieHeader) {
+      nseCookies = setCookieHeader.map(cookie => cookie.split(';')[0]).join('; ');
+    }
+  } catch (err) {
+    console.error('Failed to get NSE cookies:', err);
+  }
+}
+
+const getOptionChainData = async (): Promise<OptionChainData> => {
+  try {
+    if (!nseCookies) {
+      await fetchNSECookies();
+    }
+    
+    const url = 'https://www.nseindia.com/api/option-chain-indices?symbol=NIFTY';
+    const response = await axios.get(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.1.0 Safari/537.36',
+        'Accept': 'application/json, text/javascript, */*; q=0.01',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://www.nseindia.com/option-chain',
+        'Cookie': nseCookies
+      }
+    });
+
+    const data = response.data;
+    const spotPrice = data.records.underlyingValue;
+    
+    // Filter out strikes that are too far from the spot price to keep the analysis scoped and performant
+    const filteredRecords = data.records.data.filter((record: any) => {
+       return record.strikePrice >= spotPrice * 0.95 && record.strikePrice <= spotPrice * 1.05;
+    });
+
+    const strikes = filteredRecords.map((record: any) => {
+      return {
+        price: record.strikePrice,
+        callOI: record.CE ? record.CE.openInterest : 0,
+        putOI: record.PE ? record.PE.openInterest : 0
+      };
+    });
+
+    return {
+      spotPrice,
+      strikes
+    };
+  } catch (error) {
+    console.error("Error fetching NSE Option Chain data, falling back to mock... (Bot detection likely)", error);
+    // Fallback back to mock if NSE bot detection blocks us
+    nseCookies = '';
+    const baseSpot = 22000;
+    const spotPrice = Math.floor(baseSpot + Math.random() * 500);
+    const strikes = [];
+    for (let i = -3; i <= 3; i++) {
+      const strikePrice = Math.round(spotPrice / 100) * 100 + (i * 100);
+      strikes.push({
+        price: strikePrice,
+        callOI: Math.floor(Math.random() * 5000000 + 1000000), 
+        putOI: Math.floor(Math.random() * 5000000 + 1000000)
+      });
+    }
+    return { spotPrice, strikes };
+  }
 };
 
 interface NewsData {
