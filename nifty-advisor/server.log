@@ -1,0 +1,5 @@
+{"level":30,"time":1773332057650,"pid":3435,"hostname":"Prashanths-MacBook-Air.local","msg":"Server listening at http://127.0.0.1:3000"}
+{"level":30,"time":1773332057651,"pid":3435,"hostname":"Prashanths-MacBook-Air.local","msg":"Server listening at http://192.168.1.5:3000"}
+NIFTY Advisor Server is running at http://localhost:3000
+Access the advisor endpoint at http://localhost:3000/nifty-advisor
+{"level":30,"time":1773332059480,"pid":3435,"hostname":"Prashanths-MacBook-Air.local","reqId":"req-1","req":{"method":"GET","url":"/nifty-advisor","host":"localhost:3000","remoteAddress":"127.0.0.1","remotePort":51419},"msg":"incoming request"}

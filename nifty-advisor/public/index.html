@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NIFTY Advisor Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="video-bg"></div>
+    <main class="container">
+        <header class="dashboard-header">
+            <div>
+                <h1>NIFTY Options & News Advisor</h1>
+                <p class="subtitle">AI-Driven F&O Intelligence</p>
+            </div>
+            <div class="header-status">
+                <span id="lastUpdated" class="status-time">Updating...</span>
+                <span class="live-dot"></span>
+            </div>
+        </header>
+
+        <section class="dashboard-grid">
+            <!-- Market Overview Panel -->
+            <div class="glass-card panel">
+                <h2>Market Overview</h2>
+                <div class="data-group">
+                    <div class="data-item">
+                        <span class="label">Spot Price</span>
+                        <span id="spotPrice" class="value loading-shimmer">---</span>
+                    </div>
+                </div>
+                <div class="data-row">
+                    <div class="data-item">
+                        <span class="label">Support</span>
+                        <span id="supportLevel" class="value loading-shimmer">---</span>
+                    </div>
+                    <div class="data-item">
+                        <span class="label">Resistance</span>
+                        <span id="resistanceLevel" class="value loading-shimmer">---</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sentiment & PCR Panel -->
+            <div class="glass-card panel">
+                <h2>Sentiment & Flow</h2>
+                <div class="data-row">
+                    <div class="data-item">
+                        <span class="label">News Sentiment</span>
+                        <div class="sentiment-badge" id="newsSentiment">
+                            <span class="loading-shimmer">---</span>
+                        </div>
+                    </div>
+                    <div class="data-item">
+                        <span class="label">Put-Call Ratio (PCR)</span>
+                        <span id="pcrValue" class="value loading-shimmer">---</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Strategy Recommendation Panel -->
+            <div class="glass-card panel recommendation-panel">
+                <div class="rec-header">
+                    <h2>Trade Setup</h2>
+                    <span id="riskLevel" class="risk-badge loading-shimmer">Risk: ---</span>
+                </div>
+                <div class="recommendation-content">
+                    <h3 id="recommendationTitle" class="rec-title loading-shimmer">Analyzing...</h3>
+                    <p id="recommendationStrategy" class="rec-desc loading-shimmer">Waiting for market data streams...</p>
+                </div>
+            </div>
+        </section>
+        
+        <footer class="dashboard-footer">
+            <p>Data auto-refreshes every 10 minutes. For demonstration purposes only.</p>
+        </footer>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>
