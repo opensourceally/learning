@@ -71,6 +71,30 @@
                     <p id="recommendationStrategy" class="rec-desc loading-shimmer">Waiting for market data streams...</p>
                 </div>
             </div>
+
+            <!-- Option Chain Data Panel -->
+            <div class="glass-card panel option-chain-panel" style="grid-column: 1 / -1;">
+                <h2>Live Option Chain (Near-The-Money)</h2>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Call OI</th>
+                                <th>Strike Price</th>
+                                <th>Put OI</th>
+                            </tr>
+                        </thead>
+                        <tbody id="optionChainTableBody">
+                            <tr><td colspan="3" class="loading-shimmer" style="text-align:center;">Loading strikes...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="pagination-controls" id="paginationControls" style="display: none;">
+                    <button id="prevPageBtn" class="page-btn">Previous</button>
+                    <span id="pageInfo" class="page-info">Page 1 of 1</span>
+                    <button id="nextPageBtn" class="page-btn">Next</button>
+                </div>
+            </div>
         </section>
         
         <footer class="dashboard-footer">

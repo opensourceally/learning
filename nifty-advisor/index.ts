@@ -16,33 +16,100 @@ fastify.register(fastifyStatic, {
   prefix: '/', // optional: default '/'
 });
 
-// Mock function to analyze news sentiment
-// In a real application, you might use a service like NewsAPI and a sentiment analysis NLP library or LLM.
-const getNewsSentiment = async () => {
-  const sentiments = ['Bullish', 'Bearish', 'Neutral'];
-  const randomSentiment = sentiments[Math.floor(Math.random() * sentiments.length)] as string;
-  return { sentiment: randomSentiment, score: Math.round(Math.random() * 100) };
+const getNewsSentiment = async (): Promise<NewsData> => {
+  try {
+    const rssUrl = 'https://economictimes.indiatimes.com/markets/stocks/rssfeeds/2146842.cms';
+    const response = await axios.get(rssUrl);
+    const xml = response.data;
+    
+    // Simple extraction of titles from XML items
+    const titles = [...xml.matchAll(/<title>(.*?)<\/title>/g)].map(match => match[1]);
+    
+    // Filter out the channel title itself
+    const headlines = titles.filter(t => !t.includes("Economic Times") && !t.includes("ET Markets"));
+
+    const bullishWords = ['gain', 'surge', 'bullish', 'record', 'growth', 'rise', 'jump', 'up', 'high', 'positive', 'rally', 'recovery'];
+    const bearishWords = ['fall', 'drop', 'crash', 'bearish', 'decline', 'down', 'low', 'negative', 'slump', 'weak', 'loss', 'sell', 'pressure'];
+
+    let bullCount = 0;
+    let bearCount = 0;
+
+    headlines.forEach(headline => {
+      const lowerHeadline = headline.toLowerCase();
+      bullishWords.forEach(word => {
+        if (lowerHeadline.includes(word)) bullCount++;
+      });
+      bearishWords.forEach(word => {
+        if (lowerHeadline.includes(word)) bearCount++;
+      });
+    });
+
+    const total = (bullCount + bearCount) || 1;
+    const score = Math.round((bullCount / total) * 100);
+    
+    let sentiment = 'Neutral';
+    if (score > 60) sentiment = 'Bullish';
+    else if (score < 40) sentiment = 'Bearish';
+
+    return { sentiment, score };
+  } catch (error) {
+    console.error('Failed to fetch news sentiment:', error);
+    return { sentiment: 'Neutral', score: 50 };
+  }
 };
 
 // Function to fetch Option Chain Data from NSE India
 let nseCookies = '';
 
+const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+
 async function fetchNSECookies() {
   try {
+    // Phase 1: Initial load
     const response = await axios.get('https://www.nseindia.com', {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.1.0 Safari/537.36',
+        'User-Agent': userAgent,
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9',
       }
     });
 
-    const setCookieHeader = response.headers['set-cookie'];
-    if (setCookieHeader) {
-      nseCookies = setCookieHeader.map(cookie => cookie.split(';')[0]).join('; ');
+    let cookies = response.headers['set-cookie']?.map(cookie => cookie.split(';')[0]).join('; ');
+
+    // Phase 2: Warm-up to ensure Akamai/Advanced cookies are set
+    await axios.get('https://www.nseindia.com/option-chain', {
+      headers: {
+        'User-Agent': userAgent,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Cookie': cookies
+      }
+    });
+
+    if (cookies) {
+      nseCookies = cookies;
     }
   } catch (err) {
     console.error('Failed to get NSE cookies:', err);
+  }
+}
+
+async function getLatestExpiryDate(): Promise<string | null> {
+  try {
+    const url = 'https://www.nseindia.com/api/option-chain-contract-info?symbol=NIFTY';
+    const response = await axios.get(url, {
+      headers: {
+        'User-Agent': userAgent,
+        'Accept': 'application/json, text/javascript, */*; q=0.01',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://www.nseindia.com/option-chain',
+        'Cookie': nseCookies
+      }
+    });
+    return response.data?.expiryDates?.[0] || null;
+  } catch (err) {
+    console.error('Failed to fetch expiry dates:', err);
+    return null;
   }
 }
 
@@ -51,24 +118,29 @@ const getOptionChainData = async (): Promise<OptionChainData> => {
     if (!nseCookies) {
       await fetchNSECookies();
     }
-    
-    const url = 'https://www.nseindia.com/api/option-chain-indices?symbol=NIFTY';
+
+    const expiry = await getLatestExpiryDate();
+    if (!expiry) {
+      throw new Error("Could not fetch expiry date");
+    }
+
+    const url = `https://www.nseindia.com/api/option-chain-v3?type=Indices&symbol=NIFTY&expiry=${expiry}`;
     const response = await axios.get(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.1.0 Safari/537.36',
+        'User-Agent': userAgent,
         'Accept': 'application/json, text/javascript, */*; q=0.01',
         'Accept-Language': 'en-US,en;q=0.9',
         'Referer': 'https://www.nseindia.com/option-chain',
         'Cookie': nseCookies
       }
     });
-
     const data = response.data;
+    console.log('data', data);
     const spotPrice = data.records.underlyingValue;
-    
-    // Filter out strikes that are too far from the spot price to keep the analysis scoped and performant
+
+    // Filter out strikes that are too far from the spot price
     const filteredRecords = data.records.data.filter((record: any) => {
-       return record.strikePrice >= spotPrice * 0.95 && record.strikePrice <= spotPrice * 1.05;
+      return record.strikePrice >= spotPrice * 0.95 && record.strikePrice <= spotPrice * 1.05;
     });
 
     const strikes = filteredRecords.map((record: any) => {
@@ -85,16 +157,15 @@ const getOptionChainData = async (): Promise<OptionChainData> => {
     };
   } catch (error) {
     console.error("Error fetching NSE Option Chain data, falling back to mock... (Bot detection likely)", error);
-    // Fallback back to mock if NSE bot detection blocks us
     nseCookies = '';
-    const baseSpot = 22000;
+    const baseSpot = 23000;
     const spotPrice = Math.floor(baseSpot + Math.random() * 500);
     const strikes = [];
     for (let i = -3; i <= 3; i++) {
       const strikePrice = Math.round(spotPrice / 100) * 100 + (i * 100);
       strikes.push({
         price: strikePrice,
-        callOI: Math.floor(Math.random() * 5000000 + 1000000), 
+        callOI: Math.floor(Math.random() * 5000000 + 1000000),
         putOI: Math.floor(Math.random() * 5000000 + 1000000)
       });
     }
@@ -119,7 +190,7 @@ interface OptionChainData {
 // Core logic to determine where to invest
 const analyzeMarket = (news: NewsData, optionChain: OptionChainData) => {
   const { spotPrice, strikes } = optionChain;
-  
+
   // Predict support and resistance based on Open Interest
   // Support = Strike with highest Put OI
   // Resistance = Strike with highest Call OI
@@ -133,7 +204,7 @@ const analyzeMarket = (news: NewsData, optionChain: OptionChainData) => {
   for (const strike of strikes) {
     totalCallOI += strike.callOI;
     totalPutOI += strike.putOI;
-    
+
     if (strike.callOI > maxCallOI) {
       maxCallOI = strike.callOI;
       resistanceStrike = strike.price;
@@ -180,6 +251,7 @@ const analyzeMarket = (news: NewsData, optionChain: OptionChainData) => {
       supportLevel: supportStrike,
       resistanceLevel: resistanceStrike,
       putCallRatio: Number(globalPCR),
+      strikes,
     },
     newsAnalysis: news,
     investmentAdvice: {
@@ -194,7 +266,7 @@ fastify.get('/nifty-advisor', async (request, reply) => {
   try {
     const news = await getNewsSentiment();
     const optionChain = await getOptionChainData();
-    
+
     const analysis = analyzeMarket(news, optionChain);
 
     return reply.send({

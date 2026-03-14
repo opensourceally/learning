@@ -1,7 +1,27 @@
+let allStrikes = [];
+let currentPage = 1;
+const rowsPerPage = 10;
+
 document.addEventListener('DOMContentLoaded', () => {
     fetchMarketData();
     // Refresh every 10 minutes (600000 ms)
     setInterval(fetchMarketData, 600000);
+
+    // Event listeners for pagination
+    document.getElementById('prevPageBtn').addEventListener('click', () => {
+        if (currentPage > 1) {
+            currentPage--;
+            renderTable();
+        }
+    });
+
+    document.getElementById('nextPageBtn').addEventListener('click', () => {
+        const totalPages = Math.ceil(allStrikes.length / rowsPerPage);
+        if (currentPage < totalPages) {
+            currentPage++;
+            renderTable();
+        }
+    });
 });
 
 async function fetchMarketData() {
@@ -52,6 +72,46 @@ function updateDashboard(data) {
     document.getElementById('riskLevel').textContent = `Risk: ${investmentAdvice.riskLevel}`;
     document.getElementById('recommendationTitle').textContent = investmentAdvice.recommendation;
     document.getElementById('recommendationStrategy').textContent = investmentAdvice.strategy;
+
+    // Set global strikes data and reset pagination
+    if (marketData.strikes && marketData.strikes.length > 0) {
+        allStrikes = marketData.strikes;
+        currentPage = 1;
+        renderTable();
+    } else {
+        const tableBody = document.getElementById('optionChainTableBody');
+        tableBody.innerHTML = '<tr><td colspan="3" style="text-align:center;">No strike data available right now.</td></tr>';
+        document.getElementById('paginationControls').style.display = 'none';
+    }
+}
+
+function renderTable() {
+    const tableBody = document.getElementById('optionChainTableBody');
+    tableBody.innerHTML = '';
+    
+    // Calculate start and end indices
+    const startIndex = (currentPage - 1) * rowsPerPage;
+    const endIndex = Math.min(startIndex + rowsPerPage, allStrikes.length);
+    const paginatedStrikes = allStrikes.slice(startIndex, endIndex);
+
+    paginatedStrikes.forEach(strike => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td style="color: var(--danger-color); font-weight: 600;">${strike.callOI.toLocaleString('en-IN')}</td>
+            <td style="font-weight: bold; background: rgba(255,255,255,0.05);">${strike.price}</td>
+            <td style="color: var(--success-color); font-weight: 600;">${strike.putOI.toLocaleString('en-IN')}</td>
+        `;
+        tableBody.appendChild(row);
+    });
+
+    // Update pagination controls
+    const totalPages = Math.ceil(allStrikes.length / rowsPerPage) || 1;
+    document.getElementById('pageInfo').textContent = `Page ${currentPage} of ${totalPages}`;
+    document.getElementById('paginationControls').style.display = allStrikes.length > rowsPerPage ? 'flex' : 'none';
+    
+    // Disable/Enable buttons
+    document.getElementById('prevPageBtn').disabled = currentPage === 1;
+    document.getElementById('nextPageBtn').disabled = currentPage === totalPages;
 }
 
 function showErrorState() {
