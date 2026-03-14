@@ -1,0 +1,50 @@
+name: On-Demand App Task
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: 'Task to run'
+        required: true
+        default: 'test'
+        type: choice
+        options:
+        - test
+        - build
+        - lint
+        - deploy
+
+jobs:
+  run-task:
+    name: Run On-Demand Task
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Dependencies
+        run: |
+          cd nifty-advisor
+          bun install
+
+      - name: Execute Task
+        run: |
+          cd nifty-advisor
+          if [ "${{ github.event.inputs.task }}" == "test" ]; then
+            bun test
+          elif [ "${{ github.event.inputs.task }}" == "build" ]; then
+            bun run build
+          elif [ "${{ github.event.inputs.task }}" == "lint" ]; then
+            # Add lint command if available
+            echo "Linting..."
+          elif [ "${{ github.event.inputs.task }}" == "deploy" ]; then
+            npm install -g netlify-cli
+            # Assuming public directory is the deploy target for a static site
+            # If it's a SSR/Function app, more config might be needed
+            netlify deploy --dir=public --prod --auth=${{ secrets.NETLIFY_AUTH_TOKEN }} --site=${{ secrets.NETLIFY_SITE_ID }}
+          fi
