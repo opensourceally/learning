@@ -220,26 +220,49 @@ const analyzeMarket = (news: NewsData, optionChain: OptionChainData) => {
 
   let recommendation = 'Hold / No Trade';
   let strategy = 'Wait for clearer signals';
-  const riskLevel = 'Medium';
+
+  // Determine risk level based on alignment between Sentiment, PCR, and Price Action
+  let riskLevel = 'Medium';
+  const pcr = Number(globalPCR);
+  
+  const isSentimentBullish = news.sentiment === 'Bullish';
+  const isSentimentBearish = news.sentiment === 'Bearish';
+  const isSentimentNeutral = news.sentiment === 'Neutral';
+  
+  const isPcrBullish = pcr > 1.1; // More puts than calls (bullish)
+  const isPcrBearish = pcr < 0.9; // More calls than puts (bearish)
+  
+  const isPriceAtSupport = spotPrice <= supportStrike * 1.01 && spotPrice >= supportStrike * 0.99;
+  const isPriceAtResistance = spotPrice >= resistanceStrike * 0.99 && spotPrice <= resistanceStrike * 1.01;
+
+  if (isSentimentBullish && isPcrBullish && spotPrice >= supportStrike) {
+    riskLevel = 'Low'; // Strong alignment
+  } else if (isSentimentBearish && isPcrBearish && spotPrice <= resistanceStrike) {
+    riskLevel = 'Low'; // Strong alignment
+  } else if ((isSentimentBullish && isPcrBearish) || (isSentimentBearish && isPcrBullish)) {
+    riskLevel = 'High'; // Divergence
+  } else if (isSentimentNeutral) {
+    riskLevel = 'Medium';
+  }
 
   // Basic Algorithm combining News, PCR, Support & Resistance
-  if (news.sentiment === 'Bullish' && spotPrice >= supportStrike) {
-    if (Number(globalPCR) > 1) {
+  if (isSentimentBullish && spotPrice >= supportStrike) {
+    if (pcr > 1) {
       recommendation = 'Buy NIFTY Calls / Bull Call Spread';
       strategy = `Strong bullishness. Spot (${spotPrice}) is near or above support. PCR (${globalPCR}) indicates strong put writing. Consider ATMs or slightly OTMs Calls.`;
     } else {
       recommendation = 'Buy NIFTY Calls with Caution';
       strategy = `News is bullish, but low PCR (${globalPCR}) shows call writers are active. Buy with strict stop loss.`;
     }
-  } else if (news.sentiment === 'Bearish' && spotPrice <= resistanceStrike) {
-    if (Number(globalPCR) < 1) {
+  } else if (isSentimentBearish && spotPrice <= resistanceStrike) {
+    if (pcr < 1) {
       recommendation = 'Buy NIFTY Puts / Bear Put Spread';
       strategy = `Strong bearishness. Spot (${spotPrice}) is facing resistance. PCR (${globalPCR}) shows strong call writing. Consider ATM Puts.`;
     } else {
       recommendation = 'Sell NIFTY Calls';
       strategy = `News is bearish but PCR is solid. Consider selling OTM Calls above resistance (${resistanceStrike}) instead of buying puts to use time decay.`;
     }
-  } else if (news.sentiment === 'Neutral') {
+  } else if (isSentimentNeutral) {
     recommendation = 'Short Strangle / Iron Condor';
     strategy = `Market is sideways. Sell OTM Calls above resistance (${resistanceStrike}) and OTM Puts below support (${supportStrike}) to collect premium.`;
   }
