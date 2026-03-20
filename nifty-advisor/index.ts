@@ -16,6 +16,34 @@ fastify.register(fastifyStatic, {
   prefix: '/', // optional: default '/'
 });
 
+// Sentiment word lists
+const bullishWords = ['gain', 'surge', 'bullish', 'record', 'growth', 'rise', 'jump', 'up', 'high', 'positive', 'rally', 'recovery', 'boom', 'breakout', 'outperform', 'upgrade', 'buy', 'optimistic', 'omentum'];
+const bearishWords = ['fall', 'drop', 'crash', 'bearish', 'decline', 'down', 'low', 'negative', 'slump', 'weak', 'loss', 'sell', 'pressure', 'recession', 'downgrade', 'cautious', 'fear', 'correction', 'bears'];
+
+const analyzeSentiment = (headlines: string[]): { sentiment: string; score: number; bullCount: number; bearCount: number } => {
+  let bullCount = 0;
+  let bearCount = 0;
+
+  headlines.forEach(headline => {
+    const lowerHeadline = headline.toLowerCase();
+    bullishWords.forEach(word => {
+      if (lowerHeadline.includes(word)) bullCount++;
+    });
+    bearishWords.forEach(word => {
+      if (lowerHeadline.includes(word)) bearCount++;
+    });
+  });
+
+  const total = (bullCount + bearCount) || 1;
+  const score = Math.round((bullCount / total) * 100);
+  
+  let sentiment = 'Neutral';
+  if (score > 60) sentiment = 'Bullish';
+  else if (score < 40) sentiment = 'Bearish';
+
+  return { sentiment, score, bullCount, bearCount };
+};
+
 const getNewsSentiment = async (): Promise<NewsData> => {
   try {
     const rssUrl = 'https://economictimes.indiatimes.com/markets/stocks/rssfeeds/2146842.cms';
@@ -28,34 +56,122 @@ const getNewsSentiment = async (): Promise<NewsData> => {
     // Filter out the channel title itself
     const headlines = titles.filter(t => !t.includes("Economic Times") && !t.includes("ET Markets"));
 
-    const bullishWords = ['gain', 'surge', 'bullish', 'record', 'growth', 'rise', 'jump', 'up', 'high', 'positive', 'rally', 'recovery'];
-    const bearishWords = ['fall', 'drop', 'crash', 'bearish', 'decline', 'down', 'low', 'negative', 'slump', 'weak', 'loss', 'sell', 'pressure'];
+    const analysis = analyzeSentiment(headlines);
 
-    let bullCount = 0;
-    let bearCount = 0;
-
-    headlines.forEach(headline => {
-      const lowerHeadline = headline.toLowerCase();
-      bullishWords.forEach(word => {
-        if (lowerHeadline.includes(word)) bullCount++;
-      });
-      bearishWords.forEach(word => {
-        if (lowerHeadline.includes(word)) bearCount++;
-      });
-    });
-
-    const total = (bullCount + bearCount) || 1;
-    const score = Math.round((bullCount / total) * 100);
-    
-    let sentiment = 'Neutral';
-    if (score > 60) sentiment = 'Bullish';
-    else if (score < 40) sentiment = 'Bearish';
-
-    return { sentiment, score };
+    return { sentiment: analysis.sentiment, score: analysis.score };
   } catch (error) {
     console.error('Failed to fetch news sentiment:', error);
     return { sentiment: 'Neutral', score: 50 };
   }
+};
+
+// Fetch international news sentiment from global sources
+const getInternationalNewsSentiment = async (): Promise<InternationalNewsData> => {
+  const sources = [
+    { name: 'Reuters Business', url: 'https://www.reutersagency.com/feed/?taxonomy=best-sectors&post_type=best' },
+    { name: 'Yahoo Finance', url: 'https://finance.yahoo.com/news/rssindex' }
+  ];
+
+  const allHeadlines: string[] = [];
+  const sourceResults: { source: string; sentiment: string; score: number }[] = [];
+
+  for (const source of sources) {
+    try {
+      const response = await axios.get(source.url, { timeout: 5000 });
+      const xml = response.data;
+      const titles = [...xml.matchAll(/<title>(.*?)<\/title>/g)].map(match => match[1]);
+      const headlines = titles.filter(t => !t.includes(source.name) && t.length > 10 && !t.includes('<?xml'));
+      
+      allHeadlines.push(...headlines);
+      const analysis = analyzeSentiment(headlines);
+      sourceResults.push({ source: source.name, sentiment: analysis.sentiment, score: analysis.score });
+    } catch (error) {
+      console.error(`Failed to fetch from ${source.name}:`, error);
+      sourceResults.push({ source: source.name, sentiment: 'Neutral', score: 50 });
+    }
+  }
+
+  // Aggregate all headlines for overall international sentiment
+  const overallAnalysis = analyzeSentiment(allHeadlines);
+  
+  return {
+    sentiment: overallAnalysis.sentiment,
+    score: overallAnalysis.score,
+    sources: sourceResults
+  };
+};
+
+// Fetch international market sentiment from global indices
+const getInternationalMarketSentiment = async (): Promise<InternationalMarketData> => {
+  const indices = [
+    { name: 'S&P 500', symbol: 'SPY', region: 'US' },
+    { name: 'NASDAQ', symbol: 'QQQ', region: 'US' },
+    { name: 'Dow Jones', symbol: 'DIA', region: 'US' },
+    { name: 'Nikkei 225', symbol: 'EWJ', region: 'Japan' },
+    { name: 'Hang Seng', symbol: 'EWH', region: 'Hong Kong' },
+    { name: 'FTSE 100', symbol: 'EWU', region: 'UK' },
+    { name: 'DAX', symbol: 'EWG', region: 'Germany' }
+  ];
+
+  const results: { name: string; region: string; change: number; sentiment: string }[] = [];
+
+  // Try to fetch from Yahoo Finance for US indices (most reliable)
+  try {
+    const symbols = indices.filter(i => i.region === 'US').map(i => i.symbol).join(',');
+    const response = await axios.get(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}`, {
+      headers: { 'User-Agent': userAgent }
+    });
+    
+    if (response.data?.quoteResponse?.result) {
+      for (const quote of response.data.quoteResponse.result) {
+        const change = quote.regularMarketChangePercent || 0;
+        let sentiment = 'Neutral';
+        if (change > 0.3) sentiment = 'Bullish';
+        else if (change < -0.3) sentiment = 'Bearish';
+        
+        results.push({
+          name: quote.symbol,
+          region: 'US',
+          change: change,
+          sentiment
+        });
+      }
+    }
+  } catch (error) {
+    console.error('Failed to fetch US market data:', error);
+  }
+
+  // For non-US indices, use predefined sentiment based on typical market hours
+  // In production, you'd use a more reliable data source
+  const asianMarkets = ['Nikkei 225', 'Hang Seng'];
+  const europeanMarkets = ['FTSE 100', 'DAX'];
+  
+  // Add mock data for Asian markets (would need real API in production)
+  for (const idx of indices.filter(i => asianMarkets.includes(i.name))) {
+    results.push({ name: idx.name, region: idx.region, change: 0, sentiment: 'Neutral' });
+  }
+  
+  // Add mock data for European markets
+  for (const idx of indices.filter(i => europeanMarkets.includes(i.name))) {
+    results.push({ name: idx.name, region: idx.region, change: 0, sentiment: 'Neutral' });
+  }
+
+  // Calculate overall international sentiment
+  const bullishCount = results.filter(r => r.sentiment === 'Bullish').length;
+  const bearishCount = results.filter(r => r.sentiment === 'Bearish').length;
+  const total = results.length || 1;
+  
+  let overallSentiment = 'Neutral';
+  const sentimentScore = Math.round((bullishCount / total) * 100);
+  
+  if (sentimentScore > 60) overallSentiment = 'Bullish';
+  else if (sentimentScore < 40) overallSentiment = 'Bearish';
+
+  return {
+    sentiment: overallSentiment,
+    score: sentimentScore,
+    indices: results
+  };
 };
 
 // Function to fetch Option Chain Data from NSE India
@@ -178,6 +294,18 @@ interface NewsData {
   score: number;
 }
 
+interface InternationalNewsData {
+  sentiment: string;
+  score: number;
+  sources: { source: string; sentiment: string; score: number }[];
+}
+
+interface InternationalMarketData {
+  sentiment: string;
+  score: number;
+  indices: { name: string; region: string; change: number; sentiment: string }[];
+}
+
 interface OptionChainData {
   spotPrice: number;
   strikes: {
@@ -187,8 +315,53 @@ interface OptionChainData {
   }[];
 }
 
+// Combine domestic and international sentiment into a weighted score
+const combineSentiment = (
+  domesticNews: NewsData,
+  internationalNews: InternationalNewsData,
+  internationalMarket: InternationalMarketData
+): { combinedSentiment: string; combinedScore: number; breakdown: { domestic: number; internationalNews: number; internationalMarket: number } } => {
+  // Weights: Domestic news (50%), International news (25%), International market (25%)
+  const domesticWeight = 0.5;
+  const intlNewsWeight = 0.25;
+  const intlMarketWeight = 0.25;
+
+  const domesticScore = domesticNews.score;
+  const intlNewsScore = internationalNews.sentiment === 'Neutral' ? 50 : 
+                        internationalNews.sentiment === 'Bullish' ? internationalNews.score : 
+                        100 - internationalNews.score;
+  const intlMarketScore = internationalMarket.sentiment === 'Neutral' ? 50 : 
+                          internationalMarket.sentiment === 'Bullish' ? internationalMarket.score : 
+                          100 - internationalMarket.score;
+
+  const combinedScore = Math.round(
+    domesticScore * domesticWeight +
+    intlNewsScore * intlNewsWeight +
+    intlMarketScore * intlMarketWeight
+  );
+
+  let combinedSentiment = 'Neutral';
+  if (combinedScore > 60) combinedSentiment = 'Bullish';
+  else if (combinedScore < 40) combinedSentiment = 'Bearish';
+
+  return {
+    combinedSentiment,
+    combinedScore,
+    breakdown: {
+      domestic: domesticScore,
+      internationalNews: intlNewsScore,
+      internationalMarket: intlMarketScore
+    }
+  };
+};
+
 // Core logic to determine where to invest
-const analyzeMarket = (news: NewsData, optionChain: OptionChainData) => {
+const analyzeMarket = (
+  news: NewsData,
+  optionChain: OptionChainData,
+  internationalNews?: InternationalNewsData,
+  internationalMarket?: InternationalMarketData
+) => {
   const { spotPrice, strikes } = optionChain;
 
   // Predict support and resistance based on Open Interest
@@ -225,9 +398,19 @@ const analyzeMarket = (news: NewsData, optionChain: OptionChainData) => {
   let riskLevel = 'Medium';
   const pcr = Number(globalPCR);
   
-  const isSentimentBullish = news.sentiment === 'Bullish';
-  const isSentimentBearish = news.sentiment === 'Bearish';
-  const isSentimentNeutral = news.sentiment === 'Neutral';
+  // Use combined sentiment if international data is available
+  let effectiveSentiment = news.sentiment;
+  let effectiveScore = news.score;
+  
+  if (internationalNews && internationalMarket) {
+    const combined = combineSentiment(news, internationalNews, internationalMarket);
+    effectiveSentiment = combined.combinedSentiment;
+    effectiveScore = combined.combinedScore;
+  }
+  
+  const isSentimentBullish = effectiveSentiment === 'Bullish';
+  const isSentimentBearish = effectiveSentiment === 'Bearish';
+  const isSentimentNeutral = effectiveSentiment === 'Neutral';
   
   const isPcrBullish = pcr > 1.1; // More puts than calls (bullish)
   const isPcrBearish = pcr < 0.9; // More calls than puts (bearish)
@@ -267,6 +450,16 @@ const analyzeMarket = (news: NewsData, optionChain: OptionChainData) => {
     strategy = `Market is sideways. Sell OTM Calls above resistance (${resistanceStrike}) and OTM Puts below support (${supportStrike}) to collect premium.`;
   }
 
+  // Build international context string for the strategy
+  let intlContext = '';
+  if (internationalMarket && internationalMarket.indices.length > 0) {
+    const usMarkets = internationalMarket.indices.filter(i => i.region === 'US');
+    if (usMarkets.length > 0) {
+      const avgChange = usMarkets.reduce((sum, m) => sum + m.change, 0) / usMarkets.length;
+      intlContext = ` | US Markets: ${avgChange > 0 ? '+' : ''}${avgChange.toFixed(2)}%`;
+    }
+  }
+
   return {
     timestamp: new Date().toISOString(),
     marketData: {
@@ -277,15 +470,51 @@ const analyzeMarket = (news: NewsData, optionChain: OptionChainData) => {
       strikes,
     },
     newsAnalysis: news,
+    internationalAnalysis: internationalNews && internationalMarket ? {
+      newsSentiment: internationalNews,
+      marketSentiment: internationalMarket,
+      combinedScore: effectiveScore,
+      combinedSentiment: effectiveSentiment
+    } : undefined,
     investmentAdvice: {
       recommendation,
-      strategy,
+      strategy: strategy + intlContext,
       riskLevel
     }
   };
 }
 
 fastify.get('/nifty-advisor', async (request, reply) => {
+  try {
+    // Fetch all data in parallel
+    const [news, optionChain, intlNews, intlMarket] = await Promise.all([
+      getNewsSentiment(),
+      getOptionChainData(),
+      getInternationalNewsSentiment().catch(err => {
+        console.error('Failed to fetch international news:', err);
+        return null;
+      }),
+      getInternationalMarketSentiment().catch(err => {
+        console.error('Failed to fetch international market:', err);
+        return null;
+      })
+    ]);
+
+    // Pass international data to the analyzer
+    const analysis = analyzeMarket(news, optionChain, intlNews || undefined, intlMarket || undefined);
+
+    return reply.send({
+      success: true,
+      data: analysis
+    });
+  } catch (error) {
+    request.log.error(error);
+    return reply.status(500).send({ success: false, error: 'Failed to generate recommendation' });
+  }
+});
+
+// Endpoint for domestic-only analysis (legacy)
+fastify.get('/nifty-advisor/domestic', async (request, reply) => {
   try {
     const news = await getNewsSentiment();
     const optionChain = await getOptionChainData();
